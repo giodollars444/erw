@@ -1,136 +1,12 @@
-<?php
-date_default_timezone_set('Europe/Rome');
-include 'connessione.php';
-
-// Check if time limits table exists, if not create it
-$conn->query("CREATE TABLE IF NOT EXISTS limiti_orari (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    giorno_settimana ENUM('lunedi', 'martedi', 'mercoledi', 'giovedi', 'venerdi', 'sabato', 'domenica') NOT NULL,
-    orario TIME NOT NULL,
-    limite_persone INT NOT NULL DEFAULT 1,
-    attivo TINYINT(1) DEFAULT 1,
-    UNIQUE KEY unique_slot (giorno_settimana, orario)
-)");
-
-// Check if specific date limits table exists, if not create it
-$conn->query("CREATE TABLE IF NOT EXISTS limiti_date_specifiche (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    data_specifica DATE NOT NULL,
-    orario TIME NOT NULL,
-    limite_persone INT NOT NULL DEFAULT 1,
-    attivo TINYINT(1) DEFAULT 1,
-    UNIQUE KEY unique_date_slot (data_specifica, orario)
-)");
-
-// Create table for working days configuration
-$conn->query("CREATE TABLE IF NOT EXISTS giorni_lavorativi (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    giorno_settimana ENUM('lunedi', 'martedi', 'mercoledi', 'giovedi', 'venerdi', 'sabato', 'domenica') NOT NULL UNIQUE,
-    attivo TINYINT(1) DEFAULT 1,
-    orario_apertura TIME DEFAULT '09:00:00',
-    orario_chiusura TIME DEFAULT '18:30:00'
-)");
-
-// Create table for available time slots
-$conn->query("CREATE TABLE IF NOT EXISTS fasce_orarie (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    orario TIME NOT NULL UNIQUE,
-    attivo TINYINT(1) DEFAULT 1,
-    descrizione VARCHAR(255)
-)");
-
-// Create operators table if it doesn't exist
-$conn->query("CREATE TABLE IF NOT EXISTS operatori (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    nome VARCHAR(255) NOT NULL,
-    cognome VARCHAR(255) NOT NULL,
-    telefono VARCHAR(20),
-    email VARCHAR(255),
-    specialita TEXT,
-    attivo TINYINT(1) DEFAULT 1,
-    data_inserimento TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)");
-
-// Add operatore_id column to prenotazioni table if it doesn't exist
-$result = $conn->query("SHOW COLUMNS FROM prenotazioni LIKE 'operatore_id'");
-if ($result->num_rows == 0) {
-    $conn->query("ALTER TABLE prenotazioni ADD COLUMN operatore_id INT, ADD FOREIGN KEY (operatore_id) REFERENCES operatori(id)");
-}
-
-// Initialize default working days if table is empty
-$check_giorni = $conn->query("SELECT COUNT(*) as count FROM giorni_lavorativi");
-$giorni_count = $check_giorni->fetch_assoc()['count'];
-if ($giorni_count == 0) {
-    $giorni_default = [
-        ['martedi', 1], ['mercoledi', 1], ['giovedi', 1], ['venerdi', 1], ['sabato', 1],
-        ['lunedi', 0], ['domenica', 0]
-    ];
-    foreach ($giorni_default as $giorno) {
-        $conn->query("INSERT INTO giorni_lavorativi (giorno_settimana, attivo) VALUES ('{$giorno[0]}', {$giorno[1]})");
-    }
-}
-
-// Initialize default time slots if table is empty
-$check_fasce = $conn->query("SELECT COUNT(*) as count FROM fasce_orarie");
-$fasce_count = $check_fasce->fetch_assoc()['count'];
-if ($fasce_count == 0) {
-    for ($hour = 9; $hour < 19; $hour++) {
-        for ($min = 0; $min < 60; $min += 30) {
-            $time = sprintf("%02d:%02d:00", $hour, $min);
-            $conn->query("INSERT INTO fasce_orarie (orario, attivo) VALUES ('$time', 1)");
-        }
-    }
-}
-?>
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Old School Barber - Prenota il tuo taglio</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root {
-            /* Light mode colors */
-            --bg-primary: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
-            --bg-secondary: rgba(255, 255, 255, 0.05);
-            --bg-tertiary: rgba(255, 255, 255, 0.08);
-            --text-primary: #ff4444; /* Fire red for form text */
-            --text-secondary: #a0a0a0;
-            --text-accent: #ffd700;
-            --border-primary: rgba(255, 255, 255, 0.1);
-            --border-secondary: rgba(255, 255, 255, 0.15);
-            --accent-primary: #d4af37;
-            --accent-secondary: #ffd700;
-            --success-color: #4ade80;
-            --error-color: #f87171;
-            --warning-color: #fbbf24;
-            --shadow-primary: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            --shadow-hover: 0 35px 70px -12px rgba(0, 0, 0, 0.35);
-        }
-
-        /* Dark mode colors - enhanced for better contrast */
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg-primary: linear-gradient(135deg, #000000 0%, #0a0a0f 50%, #111111 100%);
-                --bg-secondary: rgba(255, 255, 255, 0.03);
-                --bg-tertiary: rgba(255, 255, 255, 0.06);
-                --text-primary: #ff4444; /* Fire red for form text */
-                --text-secondary: #9ca3af;
-                --text-accent: #fbbf24;
-                --border-primary: rgba(255, 255, 255, 0.08);
-                --border-secondary: rgba(255, 255, 255, 0.12);
-                --accent-primary: #f59e0b;
-                --accent-secondary: #fbbf24;
-                --success-color: #10b981;
-                --error-color: #ef4444;
-                --warning-color: #f59e0b;
-                --shadow-primary: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
-                --shadow-hover: 0 35px 70px -12px rgba(0, 0, 0, 0.5);
-            }
-        }
-
         * {
             margin: 0;
             padding: 0;
@@ -139,12 +15,10 @@ if ($fasce_count == 0) {
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
             min-height: 100vh;
-            color: var(--text-accent);
+            color: #ffffff;
             overflow-x: hidden;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
         }
 
         /* Background Animation */
@@ -176,155 +50,132 @@ if ($fasce_count == 0) {
 
         /* Header */
         .header {
-            text-align: center;
-            padding: 2rem 1rem;
-            margin-bottom: 2rem;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 2rem;
         }
 
         .logo {
-            display: inline-flex;
+            display: flex;
             align-items: center;
             gap: 1rem;
-            margin-bottom: 1rem;
         }
 
         .logo i {
-            font-size: 3rem;
-            color: var(--accent-primary);
-            filter: drop-shadow(0 0 10px rgba(212, 175, 55, 0.3));
+            font-size: 2rem;
+            color: #d4af37;
         }
 
         .logo h1 {
-            font-size: 2.5rem;
+            font-size: 1.8rem;
             font-weight: 800;
-            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            background: linear-gradient(135deg, #d4af37 0%, #ffd700 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            text-shadow: 0 0 30px rgba(212, 175, 55, 0.5);
         }
 
-        .tagline {
-            font-size: 1.1rem;
-            color: var(--text-secondary);
-            font-weight: 300;
-            margin-top: 0.5rem;
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: #a0a0a0;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+        }
+
+        .nav-links a:hover {
+            color: #d4af37;
+            background: rgba(212, 175, 55, 0.1);
         }
 
         /* Main Container */
         .container {
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            min-height: calc(100vh - 200px);
-            padding: 1rem;
-            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            gap: 3rem;
         }
 
-        .form-container {
-            background: var(--bg-secondary);
+        /* Section Styles */
+        .section {
+            background: rgba(255, 255, 255, 0.05);
             backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
             border-radius: 24px;
-            border: 1px solid var(--border-primary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             padding: 3rem 2.5rem;
-            width: 100%;
-            max-width: 480px;
-            box-shadow: var(--shadow-primary), 0 0 0 1px var(--border-primary);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
             transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
         }
 
-        .form-container::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
-            opacity: 0.5;
-        }
-
-        .form-container:hover {
+        .section:hover {
             transform: translateY(-5px);
-            box-shadow: var(--shadow-hover), 0 0 0 1px var(--border-secondary);
+            box-shadow: 0 35px 70px -12px rgba(0, 0, 0, 0.35);
         }
 
-        /* Verification Section */
-        .verification-container {
-            background: var(--bg-secondary);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-radius: 24px;
-            border: 1px solid rgba(59, 130, 246, 0.2);
-            padding: 3rem 2.5rem;
-            width: 100%;
-            max-width: 480px;
-            box-shadow: var(--shadow-primary), 0 0 0 1px rgba(59, 130, 246, 0.1);
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .verification-container::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.5), transparent);
-            opacity: 0.5;
-        }
-
-        .verification-container:hover {
-            transform: translateY(-5px);
-            box-shadow: var(--shadow-hover), 0 0 0 1px rgba(59, 130, 246, 0.2);
-        }
-
-        .form-title {
+        .section-header {
             text-align: center;
             margin-bottom: 2.5rem;
         }
 
-        .form-title h2 {
-            font-size: 1.8rem;
+        .section-icon {
+            font-size: 3rem;
+            color: #d4af37;
+            margin-bottom: 1rem;
+            filter: drop-shadow(0 0 10px rgba(212, 175, 55, 0.3));
+        }
+
+        .section-title {
+            font-size: 2rem;
             font-weight: 700;
-            color: var(--text-primary);
+            color: #ffffff;
             margin-bottom: 0.5rem;
         }
 
-        .verification-title h2 {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: #60a5fa;
-            margin-bottom: 0.5rem;
-        }
-
-        .form-title p {
-            color: var(--text-secondary);
-            font-size: 0.95rem;
+        .section-subtitle {
+            color: #a0a0a0;
+            font-size: 1.1rem;
             font-weight: 400;
         }
 
-        /* Form Elements */
+        /* Form Styles */
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
         .form-group {
-            margin-bottom: 1.5rem;
             position: relative;
         }
 
         .form-group label {
             display: block;
             margin-bottom: 0.5rem;
-            color: var(--text-primary);
+            color: #e0e0e0;
             font-weight: 500;
-            font-size: 0.9rem;
-        }
-
-        .verification-container .form-group label {
-            color: #60a5fa;
+            font-size: 0.95rem;
         }
 
         .input-wrapper {
@@ -336,152 +187,55 @@ if ($fasce_count == 0) {
             left: 1rem;
             top: 50%;
             transform: translateY(-50%);
-            color: var(--text-secondary);
+            color: #a0a0a0;
             font-size: 1rem;
             z-index: 2;
         }
 
-        input, select {
+        input, select, textarea {
             width: 100%;
             padding: 1rem 1rem 1rem 3rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-secondary);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 12px;
-            color: var(--text-primary);
+            color: #ffffff;
             font-size: 1rem;
-            font-weight: 400;
             transition: all 0.3s ease;
             backdrop-filter: blur(10px);
         }
 
-        /* Mobile calendar fix */
-        input[type="date"] {
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
-            position: relative;
-            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2214%22%20height%3D%2214%22%20viewBox%3D%220%200%2014%2014%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cpath%20d%3D%22M1%201h12v12H1V1zm2%202v8h8V3H3zm1%201h1v1H4V4zm2%200h1v1H6V4zm2%200h1v1H8V4zm-4%202h1v1H4V6zm2%200h1v1H6V6zm2%200h1v1H8V6zm2%200h1v1h-1V6zM4%208h1v1H4V8zm2%200h1v1H6V8zm2%200h1v1H8V8zm2%200h1v1h-1V8z%22%20fill%3D%22%23ff4444%22/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 1rem center;
-            background-size: 14px 14px;
-            cursor: pointer;
+        input::placeholder, textarea::placeholder {
+            color: #a0a0a0;
         }
 
-        /* iOS specific fixes */
-        input[type="date"]::-webkit-calendar-picker-indicator {
-            opacity: 0;
-            position: absolute;
-            right: 0;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
-        }
-
-        /* Android specific fixes */
-        input[type="date"]::-webkit-inner-spin-button,
-        input[type="date"]::-webkit-outer-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
-        }
-
-        input::placeholder {
-            color: var(--text-secondary);
-            font-weight: 400;
-        }
-
-        input:focus, select:focus {
+        input:focus, select:focus, textarea:focus {
             outline: none;
-            border-color: var(--accent-primary);
-            background: var(--bg-secondary);
-            box-shadow: 
-                0 0 0 3px rgba(212, 175, 55, 0.1),
-                0 8px 25px -8px rgba(212, 175, 55, 0.2);
+            border-color: #d4af37;
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.1);
             transform: translateY(-1px);
         }
 
-        .verification-container input:focus {
-            border-color: #60a5fa;
-            box-shadow: 
-                0 0 0 3px rgba(96, 165, 250, 0.1),
-                0 8px 25px -8px rgba(96, 165, 250, 0.2);
-        }
-
         select {
+            cursor: pointer;
             appearance: none;
-            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2214%22%20height%3D%2210%22%20viewBox%3D%220%200%2014%2010%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cpath%20d%3D%22M1%200l6%206%206-6%22%20stroke%3D%22%23d4af37%22%20stroke-width%3D%222%22%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2214%22%20height%3D%2210%22%20viewBox%3D%220%200%2014%2010%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cpath%20d%3D%22M1%200l6%206%206-6%22%20stroke%3D%22%23a0a0a0%22%20stroke-width%3D%222%22%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 1rem center;
             background-size: 14px 10px;
-            cursor: pointer;
         }
 
         select option {
-            background: var(--bg-primary);
-            color: var(--text-primary);
+            background: #1a1a2e;
+            color: #ffffff;
             padding: 0.5rem;
-        }
-
-        /* Dark mode specific input styling */
-        @media (prefers-color-scheme: dark) {
-            input, select {
-                background: rgba(255, 255, 255, 0.04);
-                border-color: rgba(255, 255, 255, 0.1);
-                color: #ff4444;
-            }
-
-            input:focus, select:focus {
-                background: rgba(255, 255, 255, 0.08);
-                border-color: var(--accent-primary);
-            }
-
-            input::placeholder {
-                color: #6b7280;
-            }
-
-            select option {
-                background: #111111;
-                color: #ff4444;
-            }
-        }
-
-        /* Availability indicator */
-        .availability-indicator {
-            position: absolute;
-            right: 1rem;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            z-index: 3;
-            max-width: 80px;
-            text-align: center;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .availability-indicator.available {
-            background: rgba(34, 197, 94, 0.2);
-            color: var(--success-color);
-        }
-
-        .availability-indicator.unavailable {
-            background: rgba(239, 68, 68, 0.2);
-            color: var(--error-color);
-        }
-
-        .availability-indicator.checking {
-            background: rgba(251, 191, 36, 0.2);
-            color: var(--warning-color);
         }
 
         /* Submit Button */
         .submit-btn {
             width: 100%;
             padding: 1.2rem 2rem;
-            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            background: linear-gradient(135deg, #d4af37 0%, #ffd700 100%);
             border: none;
             border-radius: 12px;
             color: #1a1a2e;
@@ -494,23 +248,7 @@ if ($fasce_count == 0) {
             margin-top: 1rem;
         }
 
-        .verify-btn {
-            width: 100%;
-            padding: 1.2rem 2rem;
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-size: 1.1rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-            margin-top: 1rem;
-        }
-
-        .submit-btn::before, .verify-btn::before {
+        .submit-btn::before {
             content: '';
             position: absolute;
             top: 0;
@@ -521,72 +259,91 @@ if ($fasce_count == 0) {
             transition: left 0.5s ease;
         }
 
-        .submit-btn:hover, .verify-btn:hover {
+        .submit-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 15px 35px -5px rgba(212, 175, 55, 0.4);
         }
 
-        .verify-btn:hover {
-            box-shadow: 0 15px 35px -5px rgba(59, 130, 246, 0.4);
-        }
-
-        .submit-btn:hover::before, .verify-btn:hover::before {
+        .submit-btn:hover::before {
             left: 100%;
         }
 
-        .submit-btn:active, .verify-btn:active {
-            transform: translateY(0);
-        }
-
         .submit-btn:disabled {
-            background: var(--bg-secondary);
-            color: var(--text-secondary);
+            opacity: 0.6;
             cursor: not-allowed;
             transform: none;
-            box-shadow: none;
         }
 
-        /* Verification Results */
-        .verification-results {
-            margin-top: 1.5rem;
+        /* Availability Display */
+        .availability-info {
+            margin-top: 1rem;
             padding: 1rem;
-            border-radius: 12px;
-            display: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            text-align: center;
+            transition: all 0.3s ease;
         }
 
-        .verification-results.success {
+        .availability-info.available {
             background: rgba(34, 197, 94, 0.1);
             border: 1px solid rgba(34, 197, 94, 0.3);
             color: #4ade80;
         }
 
-        .verification-results.error {
+        .availability-info.limited {
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            color: #fbbf24;
+        }
+
+        .availability-info.unavailable {
             background: rgba(239, 68, 68, 0.1);
             border: 1px solid rgba(239, 68, 68, 0.3);
             color: #f87171;
         }
 
+        .availability-info.hidden {
+            display: none;
+        }
+
+        /* Verification Form Styles */
+        .verification-form {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        .verification-results {
+            margin-top: 2rem;
+        }
+
         .booking-card {
             background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 1rem;
-            margin: 0.5rem 0;
-            text-align: left;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
         }
 
-        .booking-card h4 {
+        .booking-card:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateY(-2px);
+        }
+
+        .booking-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .booking-service {
+            font-size: 1.1rem;
+            font-weight: 600;
             color: #d4af37;
-            margin-bottom: 0.5rem;
         }
 
-        .booking-card p {
-            color: #e0e0e0;
-            font-size: 0.9rem;
-            margin-bottom: 0.3rem;
-        }
-
-        .status-badge {
-            display: inline-block;
+        .booking-status {
             padding: 0.3rem 0.8rem;
             border-radius: 20px;
             font-size: 0.75rem;
@@ -594,140 +351,76 @@ if ($fasce_count == 0) {
             text-transform: uppercase;
         }
 
-        .status-badge.confermata {
+        .booking-status.confermata {
             background: rgba(34, 197, 94, 0.2);
             color: #4ade80;
         }
 
-        .status-badge.in-attesa {
+        .booking-status.in-attesa {
             background: rgba(251, 191, 36, 0.2);
             color: #fbbf24;
         }
 
-        .status-badge.cancellata {
-            background: rgba(239, 68, 68, 0.2);
+        .booking-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            color: #a0a0a0;
+            font-size: 0.9rem;
+        }
+
+        .booking-detail {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .booking-detail i {
+            color: #d4af37;
+            width: 16px;
+        }
+
+        /* Messages */
+        .message {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .message.success {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #4ade80;
+        }
+
+        .message.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
             color: #f87171;
         }
 
-        /* Admin Link */
-        .admin-link {
-            text-align: center;
-            margin-top: 2rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid var(--border-primary);
-        }
-
-        .admin-link a {
-            color: var(--accent-primary);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.95rem;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .admin-link a:hover {
-            color: var(--accent-secondary);
-            transform: translateX(5px);
-        }
-
-        /* Cancel Link */
-        .cancel-link {
-            text-align: center;
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border-primary);
-        }
-
-        .cancel-link a {
-            color: var(--error-color);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .cancel-link a:hover {
-            color: #ef4444;
-            transform: translateX(5px);
-        }
-
-        /* Services Preview */
-        .services-preview {
-            margin-top: 3rem;
-            text-align: center;
-            padding: 0 1rem;
-        }
-
-        .services-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1.5rem;
-            margin-top: 2rem;
-            max-width: 1200px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .service-card {
-            background: var(--bg-secondary);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 1.5rem;
-            border: 1px solid var(--border-primary);
-            transition: all 0.3s ease;
-        }
-
-        .service-card:hover {
-            transform: translateY(-5px);
-            background: var(--bg-tertiary);
-            border-color: rgba(212, 175, 55, 0.3);
-        }
-
-        .service-card i {
-            font-size: 2rem;
-            color: var(--accent-primary);
-            margin-bottom: 1rem;
-        }
-
-        .service-card h3 {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: var(--text-primary);
-        }
-
-        .service-card p {
-            color: var(--text-secondary);
-            font-size: 0.9rem;
+        .message.info {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
         }
 
         /* Loading Animation */
         .loading {
             display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            z-index: 9999;
-            justify-content: center;
-            align-items: center;
+            text-align: center;
+            padding: 2rem;
         }
 
         .spinner {
-            width: 50px;
-            height: 50px;
+            width: 40px;
+            height: 40px;
             border: 3px solid rgba(212, 175, 55, 0.3);
-            border-top: 3px solid var(--accent-primary);
+            border-top: 3px solid #d4af37;
             border-radius: 50%;
             animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
         }
 
         @keyframes spin {
@@ -735,205 +428,181 @@ if ($fasce_count == 0) {
             100% { transform: rotate(360deg); }
         }
 
+        /* Footer */
+        .footer {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 2rem 0;
+            margin-top: 4rem;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+            padding: 0 2rem;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            color: #a0a0a0;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        .footer-links a:hover {
+            color: #d4af37;
+        }
+
+        .footer-text {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
         /* Responsive Design */
         @media (max-width: 1024px) {
             .container {
-                flex-direction: column;
-                align-items: center;
+                padding: 1.5rem;
             }
 
-            .services-grid {
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                gap: 1.2rem;
+            .section {
+                padding: 2rem 1.5rem;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
             }
         }
 
         @media (max-width: 768px) {
-            .header {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+                padding: 0 1rem;
+            }
+
+            .nav-links {
+                gap: 1rem;
+            }
+
+            .container {
+                padding: 1rem;
+                gap: 2rem;
+            }
+
+            .section {
                 padding: 1.5rem 1rem;
             }
 
-            .logo h1 {
-                font-size: 2rem;
+            .section-title {
+                font-size: 1.6rem;
             }
 
-            .logo i {
+            .section-icon {
                 font-size: 2.5rem;
             }
 
-            .form-container, .verification-container {
-                padding: 2rem 1.5rem;
-                margin: 1rem;
-                border-radius: 20px;
-                max-width: 100%;
-            }
-
-            .form-title h2, .verification-title h2 {
-                font-size: 1.5rem;
-            }
-
-            input, select {
+            input, select, textarea {
                 padding: 0.9rem 0.9rem 0.9rem 2.8rem;
                 font-size: 0.95rem;
             }
 
-            /* Mobile date input specific styling */
-            input[type="date"] {
-                font-size: 16px; /* Prevents zoom on iOS */
-                padding: 0.9rem 2.8rem 0.9rem 2.8rem;
-            }
-
-            .submit-btn, .verify-btn {
+            .submit-btn {
                 padding: 1rem 1.5rem;
                 font-size: 1rem;
             }
 
-            .services-grid {
+            .booking-details {
                 grid-template-columns: 1fr;
-                gap: 1rem;
-            }
-
-            .availability-indicator {
-                position: static;
-                display: block;
-                margin-top: 0.5rem;
-                font-size: 0.75rem;
-                text-align: center;
-                max-width: none;
-                padding: 0.3rem 0.6rem;
-            }
-            
-            select {
-                padding-right: 2.5rem;
             }
         }
 
         @media (max-width: 480px) {
-            .logo {
+            .logo h1 {
+                font-size: 1.4rem;
+            }
+
+            .logo i {
+                font-size: 1.6rem;
+            }
+
+            .section-title {
+                font-size: 1.4rem;
+            }
+
+            .section-subtitle {
+                font-size: 1rem;
+            }
+
+            .nav-links {
                 flex-direction: column;
                 gap: 0.5rem;
             }
 
-            .form-container, .verification-container {
-                padding: 1.5rem 1rem;
-                margin: 0.5rem;
-            }
-
-            .tagline {
-                font-size: 1rem;
-            }
-
-            .logo h1 {
-                font-size: 1.8rem;
-            }
-
-            .logo i {
-                font-size: 2rem;
-            }
-
-            .form-title h2, .verification-title h2 {
-                font-size: 1.3rem;
-            }
-
-            .form-title p {
-                font-size: 0.9rem;
-            }
-
-            input, select {
+            input, select, textarea {
                 padding: 0.8rem 0.8rem 0.8rem 2.5rem;
                 font-size: 0.9rem;
             }
 
-            /* Mobile date input specific styling */
-            input[type="date"] {
-                font-size: 16px; /* Prevents zoom on iOS */
-                padding: 0.8rem 2.5rem 0.8rem 2.5rem;
-            }
-
-            .submit-btn, .verify-btn {
+            .submit-btn {
                 padding: 0.9rem 1.2rem;
                 font-size: 0.95rem;
             }
 
-            .services-grid {
-                margin-top: 1.5rem;
+            .booking-card {
+                padding: 1rem;
             }
 
-            .service-card {
-                padding: 1.2rem;
-            }
-
-            .service-card i {
-                font-size: 1.8rem;
-            }
-
-            .service-card h3 {
-                font-size: 1rem;
-            }
-
-            .service-card p {
-                font-size: 0.85rem;
+            .booking-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
             }
         }
 
         @media (max-width: 360px) {
-            .form-container, .verification-container {
+            .container {
+                padding: 0.5rem;
+            }
+
+            .section {
                 padding: 1.2rem 0.8rem;
             }
 
-            .header {
-                padding: 1rem 0.5rem;
-            }
-
-            .logo h1 {
-                font-size: 1.6rem;
-            }
-
-            .form-title h2, .verification-title h2 {
+            .section-title {
                 font-size: 1.2rem;
             }
 
-            input, select {
+            input, select, textarea {
                 padding: 0.7rem 0.7rem 0.7rem 2.2rem;
                 font-size: 0.85rem;
             }
 
-            /* Mobile date input specific styling */
-            input[type="date"] {
-                font-size: 16px; /* Prevents zoom on iOS */
-                padding: 0.7rem 2.2rem 0.7rem 2.2rem;
-            }
-
-            .submit-btn, .verify-btn {
+            .submit-btn {
                 padding: 0.8rem 1rem;
                 font-size: 0.9rem;
             }
         }
 
-        /* Landscape orientation adjustments for mobile */
-        @media (max-height: 600px) and (orientation: landscape) {
-            .header {
-                padding: 1rem;
+        /* Touch device optimizations */
+        @media (hover: none) and (pointer: coarse) {
+            input, select, textarea, .submit-btn {
+                min-height: 44px;
             }
 
-            .container {
-                min-height: auto;
-                padding: 0.5rem;
-            }
-
-            .form-container, .verification-container {
-                padding: 1.5rem;
-            }
-
-            .services-preview {
-                margin-top: 2rem;
-            }
-        }
-
-        /* High DPI displays */
-        @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
-            .logo i {
-                filter: drop-shadow(0 0 5px rgba(212, 175, 55, 0.3));
+            .nav-links a {
+                min-height: 44px;
+                display: flex;
+                align-items: center;
             }
         }
 
@@ -950,410 +619,435 @@ if ($fasce_count == 0) {
             }
         }
 
-        /* Enhanced dark mode support */
-        @media (prefers-color-scheme: dark) {
-            body {
-                background: var(--bg-primary);
+        /* High contrast mode */
+        @media (prefers-contrast: high) {
+            .section {
+                border: 2px solid #ffffff;
             }
 
-            .form-container, .verification-container {
-                background: rgba(255, 255, 255, 0.02);
-                border-color: rgba(255, 255, 255, 0.05);
-            }
-
-            .service-card {
-                background: rgba(255, 255, 255, 0.02);
-                border-color: rgba(255, 255, 255, 0.05);
-            }
-
-            .service-card:hover {
-                background: rgba(255, 255, 255, 0.04);
-            }
-        }
-
-        /* Touch device optimizations */
-        @media (hover: none) and (pointer: coarse) {
-            input, select, .submit-btn, .verify-btn {
-                min-height: 44px;
-            }
-
-            .admin-link a {
-                min-height: 44px;
-                display: inline-flex;
-                align-items: center;
-            }
-        }
-
-        /* Improved zoom handling for mobile */
-        @media screen and (max-width: 768px) {
-            html {
-                -webkit-text-size-adjust: 100%;
-                -ms-text-size-adjust: 100%;
-            }
-
-            body {
-                -webkit-overflow-scrolling: touch;
-            }
-
-            .form-container, .verification-container {
-                min-width: 0;
-                width: calc(100% - 2rem);
-                max-width: none;
-            }
-
-            input, select {
-                font-size: 16px; /* Prevents zoom on iOS */
-            }
-        }
-
-        /* Better contrast for dark mode */
-        @media (prefers-color-scheme: dark) {
-            .form-group label {
-                color: #ff4444;
-            }
-
-            .form-title h2 {
-                color: #ff4444;
-            }
-
-            .service-card h3 {
-                color: #ff4444;
-            }
-
-            .tagline {
-                color: #9ca3af;
-            }
-
-            .form-title p {
-                color: #9ca3af;
+            input, select, textarea {
+                border: 2px solid #ffffff;
             }
         }
     </style>
 </head>
 <body>
     <div class="bg-animation"></div>
-    
-    <div class="loading" id="loading">
-        <div class="spinner"></div>
-    </div>
 
     <header class="header">
-        <div class="logo">
-            <i class="fas fa-cut"></i>
-            <h1>Old School Barber</h1>
+        <div class="header-content">
+            <div class="logo">
+                <i class="fas fa-cut"></i>
+                <h1>Old School Barber</h1>
+            </div>
+            <nav class="nav-links">
+                <a href="#prenota">Prenota</a>
+                <a href="#verifica">Verifica</a>
+                <a href="cancel_booking.php">Cancella</a>
+                <a href="admin.php">Admin</a>
+            </nav>
         </div>
-        <p class="tagline">Tradizione, stile e passione dal 1985</p>
     </header>
 
     <div class="container">
-        <!-- Booking Form -->
-        <div class="form-container">
-            <div class="form-title">
-                <h2>Prenota il tuo taglio</h2>
-                <p>Scegli il servizio perfetto per te</p>
+        <!-- Booking Section -->
+        <section id="prenota" class="section">
+            <div class="section-header">
+                <i class="fas fa-scissors section-icon"></i>
+                <h2 class="section-title">Prenota il tuo taglio</h2>
+                <p class="section-subtitle">Scegli il servizio, la data e l'orario che preferisci</p>
             </div>
 
             <form method="POST" action="prenota.php" id="bookingForm">
-                <div class="form-group">
-                    <label for="nome">Nome completo</label>
-                    <div class="input-wrapper">
-                        <i class="fas fa-user"></i>
-                        <input type="text" id="nome" name="nome" placeholder="Inserisci il tuo nome" required>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="nome">Nome completo *</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-user"></i>
+                            <input type="text" name="nome" id="nome" placeholder="Il tuo nome completo" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-envelope"></i>
+                            <input type="email" name="email" id="email" placeholder="la-tua-email@esempio.com">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="telefono">Telefono</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-phone"></i>
+                            <input type="tel" name="telefono" id="telefono" placeholder="+39 123 456 7890">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="servizio">Servizio *</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-cut"></i>
+                            <select name="servizio" id="servizio" required>
+                                <option value="">Seleziona un servizio</option>
+                                <?php
+                                include 'connessione.php';
+                                $servizi = $conn->query("SELECT nome FROM servizi ORDER BY nome");
+                                if ($servizi && $servizi->num_rows > 0) {
+                                    while ($row = $servizi->fetch_assoc()) {
+                                        echo '<option value="' . htmlspecialchars($row['nome']) . '">' . htmlspecialchars($row['nome']) . '</option>';
+                                    }
+                                }
+                                ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="operatore_id">Operatore (opzionale)</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-user-tie"></i>
+                            <select name="operatore_id" id="operatore_id">
+                                <option value="">Nessuna preferenza</option>
+                                <?php
+                                $operatori = $conn->query("SELECT id, nome, cognome FROM operatori WHERE attivo = 1 ORDER BY nome, cognome");
+                                if ($operatori && $operatori->num_rows > 0) {
+                                    while ($row = $operatori->fetch_assoc()) {
+                                        echo '<option value="' . $row['id'] . '">' . htmlspecialchars($row['nome'] . ' ' . $row['cognome']) . '</option>';
+                                    }
+                                }
+                                ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="data_prenotazione">Data *</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-calendar"></i>
+                            <input type="date" name="data_prenotazione" id="data_prenotazione" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="orario">Orario *</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-clock"></i>
+                            <select name="orario" id="orario" required disabled>
+                                <option value="">Prima seleziona una data</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="email">Email</label>
-                    <div class="input-wrapper">
-                        <i class="fas fa-envelope"></i>
-                        <input type="email" id="email" name="email" placeholder="la-tua-email@esempio.com">
-                    </div>
-                </div>
+                <div id="availability-info" class="availability-info hidden"></div>
 
-                <div class="form-group">
-                    <label for="telefono">Telefono</label>
-                    <div class="input-wrapper">
-                        <i class="fas fa-phone"></i>
-                        <input type="tel" id="telefono" name="telefono" placeholder="+39 123 456 7890">
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="servizio">Servizio</label>
-                    <div class="input-wrapper">
-                        <i class="fas fa-scissors"></i>
-                        <select id="servizio" name="servizio" required>
-                            <option value="" disabled selected>Seleziona il servizio</option>
-                            <?php
-                            $query = $conn->query("SELECT nome, prezzo FROM servizi");
-                            while ($row = $query->fetch_assoc()) {
-                                echo "<option value='{$row['nome']}'>{$row['nome']} - €{$row['prezzo']}</option>";
-                            }
-                            ?>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="operatore">Operatore (opzionale)</label>
-                    <div class="input-wrapper">
-                        <i class="fas fa-user-tie"></i>
-                        <select id="operatore" name="operatore_id">
-                            <option value="">Nessuna preferenza</option>
-                            <?php
-                            $operators_query = $conn->query("SELECT id, nome, cognome FROM operatori WHERE attivo = 1 ORDER BY nome, cognome");
-                            while ($operator = $operators_query->fetch_assoc()) {
-                                echo "<option value='{$operator['id']}'>{$operator['nome']} {$operator['cognome']}</option>";
-                            }
-                            ?>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="data_prenotazione">Data</label>
-                    <div class="input-wrapper">
-                        <i class="fas fa-calendar-alt"></i>
-                        <input type="date" id="data_prenotazione" name="data_prenotazione" required>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="orario">Orario</label>
-                    <div class="input-wrapper">
-                        <i class="fas fa-clock"></i>
-                        <select id="orario" name="orario" required>
-                            <option value="" disabled selected>Seleziona l'orario</option>
-                        </select>
-                        <div class="availability-indicator" id="availabilityIndicator" style="display: none;"></div>
-                    </div>
-                </div>
-
-                <button type="submit" class="submit-btn" id="submitBtn">
-                    <i class="fas fa-calendar-check"></i>
-                    Prenota ora
+                <button type="submit" class="submit-btn" id="submitBtn" disabled>
+                    <i class="fas fa-calendar-plus"></i>
+                    Prenota Appuntamento
                 </button>
             </form>
-
-            <div class="admin-link">
-                <a href="login.php">
-                    <i class="fas fa-user-shield"></i>
-                    Area Amministratore
-                </a>
-            </div>
-
-            <div class="cancel-link">
-                <a href="cancel_booking.php">
-                    <i class="fas fa-times-circle"></i>
-                    Cancella una prenotazione
-                </a>
-            </div>
-        </div>
+        </section>
 
         <!-- Verification Section -->
-        <div class="verification-container">
-            <div class="form-title verification-title">
-                <h2><i class="fas fa-search"></i> Verifica Prenotazioni</h2>
-                <p>Inserisci la tua email per visualizzare le tue prenotazioni attive</p>
+        <section id="verifica" class="section">
+            <div class="section-header">
+                <i class="fas fa-search section-icon"></i>
+                <h2 class="section-title">Verifica Prenotazioni</h2>
+                <p class="section-subtitle">Controlla lo stato delle tue prenotazioni inserendo la tua email</p>
             </div>
 
-            <div class="form-group">
-                <label for="verifyEmail">Indirizzo Email</label>
-                <div class="input-wrapper">
-                    <i class="fas fa-envelope"></i>
-                    <input type="email" id="verifyEmail" placeholder="la-tua-email@esempio.com">
+            <div class="verification-form">
+                <form id="verificationForm">
+                    <div class="form-group">
+                        <label for="verify_email">Indirizzo Email</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-envelope"></i>
+                            <input type="email" id="verify_email" placeholder="la-tua-email@esempio.com" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="submit-btn">
+                        <i class="fas fa-search"></i>
+                        Cerca Prenotazioni
+                    </button>
+                </form>
+
+                <div id="verification-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Ricerca in corso...</p>
                 </div>
+
+                <div id="verification-results" class="verification-results"></div>
             </div>
-
-            <button class="verify-btn" onclick="verifyBookings()">
-                <i class="fas fa-search"></i>
-                Verifica Prenotazioni
-            </button>
-
-            <div class="verification-results" id="verificationResults"></div>
-        </div>
+        </section>
     </div>
 
-    <div class="services-preview">
-        <div class="services-grid">
-            <div class="service-card">
-                <i class="fas fa-cut"></i>
-                <h3>Taglio Classico</h3>
-                <p>Il nostro taglio tradizionale con forbici e rasoio</p>
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="#prenota">Prenota</a>
+                <a href="#verifica">Verifica</a>
+                <a href="cancel_booking.php">Cancella Prenotazione</a>
+                <a href="admin.php">Area Admin</a>
             </div>
-            <div class="service-card">
-                <i class="fas fa-user-tie"></i>
-                <h3>Taglio & Barba</h3>
-                <p>Servizio completo per un look impeccabile</p>
-            </div>
-            <div class="service-card">
-                <i class="fas fa-spa"></i>
-                <h3>Trattamenti</h3>
-                <p>Cura e benessere per i tuoi capelli</p>
-            </div>
+            <p class="footer-text">© 2024 Old School Barber. Tutti i diritti riservati.</p>
         </div>
-    </div>
+    </footer>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', function() {
             const dateInput = document.getElementById('data_prenotazione');
             const timeSelect = document.getElementById('orario');
-            const form = document.getElementById('bookingForm');
-            const loading = document.getElementById('loading');
+            const availabilityInfo = document.getElementById('availability-info');
             const submitBtn = document.getElementById('submitBtn');
-            const availabilityIndicator = document.getElementById('availabilityIndicator');
+            const verificationForm = document.getElementById('verificationForm');
+            const verificationResults = document.getElementById('verification-results');
+            const verificationLoading = document.getElementById('verification-loading');
 
             // Set minimum date to today
             const today = new Date();
-            const day = String(today.getDate()).padStart(2, '0');
-            const month = String(today.getMonth() + 1).padStart(2, '0');
-            const year = today.getFullYear();
-            const todayLocal = `${year}-${month}-${day}`;
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            dateInput.min = tomorrow.toISOString().split('T')[0];
 
-            dateInput.setAttribute("min", todayLocal);
-            dateInput.value = todayLocal;
+            // Date change handler
+            dateInput.addEventListener('change', function() {
+                const selectedDate = this.value;
+                if (selectedDate) {
+                    checkWorkingDay(selectedDate);
+                } else {
+                    resetTimeSlots();
+                }
+            });
 
-            // Load available time slots from database
+            // Time change handler
+            timeSelect.addEventListener('change', function() {
+                const selectedDate = dateInput.value;
+                const selectedTime = this.value;
+                
+                if (selectedDate && selectedTime) {
+                    checkAvailability(selectedDate, selectedTime);
+                } else {
+                    hideAvailabilityInfo();
+                    updateSubmitButton();
+                }
+            });
+
+            function checkWorkingDay(date) {
+                fetch(`check_working_day.php?date=${date}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.isWorkingDay) {
+                            loadTimeSlots();
+                        } else {
+                            showAvailabilityInfo('Giorno non lavorativo. Seleziona un altro giorno.', 'unavailable');
+                            resetTimeSlots();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error checking working day:', error);
+                        resetTimeSlots();
+                    });
+            }
+
             function loadTimeSlots() {
                 fetch('get_time_slots.php')
                     .then(response => response.json())
                     .then(data => {
-                        timeSelect.innerHTML = '<option value="" disabled selected>Seleziona l\'orario</option>';
-                        data.forEach(slot => {
-                            const option = document.createElement('option');
-                            option.value = slot.orario.substring(0, 5); // Remove seconds
-                            option.textContent = slot.orario.substring(0, 5);
-                            timeSelect.appendChild(option);
-                        });
+                        timeSelect.innerHTML = '<option value="">Seleziona un orario</option>';
+                        
+                        if (data.length > 0) {
+                            data.forEach(slot => {
+                                const option = document.createElement('option');
+                                option.value = slot.orario;
+                                option.textContent = slot.orario.substring(0, 5);
+                                timeSelect.appendChild(option);
+                            });
+                            timeSelect.disabled = false;
+                            hideAvailabilityInfo();
+                        } else {
+                            timeSelect.innerHTML = '<option value="">Nessun orario disponibile</option>';
+                            showAvailabilityInfo('Nessun orario disponibile per questo giorno.', 'unavailable');
+                        }
+                        updateSubmitButton();
                     })
                     .catch(error => {
                         console.error('Error loading time slots:', error);
-                        // Fallback to default time slots
-                        updateTimeSlots();
+                        resetTimeSlots();
                     });
             }
 
-            // Check if date is a working day
-            function isWorkingDay(date) {
-                return fetch(`check_working_day.php?date=${date}`)
-                    .then(response => response.json())
-                    .then(data => data.isWorkingDay)
-                    .catch(() => false);
-            }
-
-            // Block non-working days
-            dateInput.addEventListener('input', async () => {
-                const selectedDate = dateInput.value;
-                if (!selectedDate) return;
-
-                const isWorking = await isWorkingDay(selectedDate);
-                if (!isWorking) {
-                    alert('Il giorno selezionato non è lavorativo. Scegli un altro giorno.');
-                    dateInput.value = "";
-                    timeSelect.innerHTML = '<option value="" disabled selected>Seleziona l\'orario</option>';
-                    hideAvailabilityIndicator();
-                } else {
-                    loadTimeSlots();
-                }
-            });
-
-            // Check availability when time is selected
-            timeSelect.addEventListener('change', () => {
-                if (dateInput.value && timeSelect.value) {
-                    checkAvailability(dateInput.value, timeSelect.value);
-                }
-            });
-
-            function hideAvailabilityIndicator() {
-                availabilityIndicator.style.display = 'none';
-                submitBtn.disabled = false;
-            }
-
-            function showAvailabilityIndicator(status, message) {
-                availabilityIndicator.style.display = 'block';
-                availabilityIndicator.className = `availability-indicator ${status}`;
-                availabilityIndicator.textContent = message;
-                
-                if (status === 'unavailable') {
-                    submitBtn.disabled = true;
-                } else {
-                    submitBtn.disabled = false;
-                }
-            }
-
             function checkAvailability(date, time) {
-                showAvailabilityIndicator('checking', 'Controllo...');
-                
                 fetch(`check_availability.php?date=${date}&time=${time}`)
                     .then(response => response.json())
                     .then(data => {
                         if (data.available) {
-                            showAvailabilityIndicator('available', data.message);
+                            if (data.limit === 'unlimited') {
+                                showAvailabilityInfo('✓ Disponibile', 'available');
+                            } else if (data.remaining_spots > 1) {
+                                showAvailabilityInfo(`✓ Disponibile (${data.remaining_spots} posti rimasti)`, 'available');
+                            } else {
+                                showAvailabilityInfo('✓ Disponibile (ultimo posto)', 'limited');
+                            }
                         } else {
-                            showAvailabilityIndicator('unavailable', data.message);
+                            showAvailabilityInfo(`✗ ${data.message}`, 'unavailable');
                         }
+                        updateSubmitButton();
                     })
                     .catch(error => {
                         console.error('Error checking availability:', error);
-                        showAvailabilityIndicator('unavailable', 'Errore controllo');
+                        showAvailabilityInfo('Errore nel controllo disponibilità', 'unavailable');
+                        updateSubmitButton();
                     });
             }
 
-            // Function to update time slots based on selected date (fallback)
-            function updateTimeSlots() {
-                // Clear existing options
-                timeSelect.innerHTML = '<option value="" disabled selected>Seleziona l\'orario</option>';
-                hideAvailabilityIndicator();
-                
-                // Generate time slots from 9:00 to 18:30
-                for (let hour = 9; hour < 19; hour++) {
-                    for (let min of [0, 30]) {
-                        let h = hour.toString().padStart(2, '0');
-                        let m = min.toString().padStart(2, '0');
-                        let timeValue = `${h}:${m}`;
-                        
-                        let option = document.createElement('option');
-                        option.value = timeValue;
-                        option.textContent = timeValue;
-                        timeSelect.appendChild(option);
-                    }
-                }
+            function showAvailabilityInfo(message, type) {
+                availabilityInfo.textContent = message;
+                availabilityInfo.className = `availability-info ${type}`;
             }
 
-            // Initial load
-            loadTimeSlots();
+            function hideAvailabilityInfo() {
+                availabilityInfo.className = 'availability-info hidden';
+            }
 
-            // Form submission with loading
-            form.addEventListener('submit', (e) => {
-                if (submitBtn.disabled) {
-                    e.preventDefault();
-                    alert('Seleziona un orario disponibile prima di procedere.');
-                    return;
-                }
-                loading.style.display = 'flex';
+            function resetTimeSlots() {
+                timeSelect.innerHTML = '<option value="">Prima seleziona una data</option>';
+                timeSelect.disabled = true;
+                hideAvailabilityInfo();
+                updateSubmitButton();
+            }
+
+            function updateSubmitButton() {
+                const isFormValid = document.getElementById('nome').value && 
+                                  document.getElementById('servizio').value && 
+                                  dateInput.value && 
+                                  timeSelect.value && 
+                                  !availabilityInfo.classList.contains('unavailable');
+                
+                submitBtn.disabled = !isFormValid;
+            }
+
+            // Form validation
+            document.querySelectorAll('#bookingForm input, #bookingForm select').forEach(element => {
+                element.addEventListener('change', updateSubmitButton);
+                element.addEventListener('input', updateSubmitButton);
             });
 
-            // Add smooth animations
-            const inputs = document.querySelectorAll('input, select');
-            inputs.forEach(input => {
-                input.addEventListener('focus', () => {
-                    input.parentElement.parentElement.style.transform = 'translateY(-2px)';
-                });
+            // Verification form handler
+            verificationForm.addEventListener('submit', function(e) {
+                e.preventDefault();
                 
-                input.addEventListener('blur', () => {
-                    input.parentElement.parentElement.style.transform = 'translateY(0)';
+                const email = document.getElementById('verify_email').value;
+                if (!email) return;
+
+                verificationLoading.style.display = 'block';
+                verificationResults.innerHTML = '';
+
+                const formData = new FormData();
+                formData.append('email', email);
+
+                fetch('verify_booking.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    verificationLoading.style.display = 'none';
+                    
+                    if (data.success) {
+                        if (data.bookings.length > 0) {
+                            displayBookings(data.bookings);
+                        } else {
+                            verificationResults.innerHTML = `
+                                <div class="message info">
+                                    <i class="fas fa-info-circle"></i>
+                                    Nessuna prenotazione attiva trovata per questo indirizzo email.
+                                </div>
+                            `;
+                        }
+                    } else {
+                        verificationResults.innerHTML = `
+                            <div class="message error">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                ${data.message}
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    verificationLoading.style.display = 'none';
+                    verificationResults.innerHTML = `
+                        <div class="message error">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Errore durante la ricerca. Riprova più tardi.
+                        </div>
+                    `;
+                });
+            });
+
+            function displayBookings(bookings) {
+                let html = `
+                    <div class="message success">
+                        <i class="fas fa-check-circle"></i>
+                        Trovate ${bookings.length} prenotazione/i attive.
+                    </div>
+                `;
+
+                bookings.forEach(booking => {
+                    const statusClass = booking.stato ? booking.stato.toLowerCase().replace(' ', '-') : 'in-attesa';
+                    const statusText = booking.stato || 'In attesa';
+                    
+                    html += `
+                        <div class="booking-card">
+                            <div class="booking-header">
+                                <div class="booking-service">${booking.servizio}</div>
+                                <div class="booking-status ${statusClass}">${statusText}</div>
+                            </div>
+                            <div class="booking-details">
+                                <div class="booking-detail">
+                                    <i class="fas fa-user"></i>
+                                    <span>${booking.nome}</span>
+                                </div>
+                                <div class="booking-detail">
+                                    <i class="fas fa-calendar"></i>
+                                    <span>${booking.data_prenotazione}</span>
+                                </div>
+                                <div class="booking-detail">
+                                    <i class="fas fa-clock"></i>
+                                    <span>${booking.orario}</span>
+                                </div>
+                                ${booking.operatore_nome ? `
+                                <div class="booking-detail">
+                                    <i class="fas fa-user-tie"></i>
+                                    <span>${booking.operatore_nome}</span>
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                verificationResults.innerHTML = html;
+            }
+
+            // Smooth scrolling for navigation links
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
+                    }
                 });
             });
 
             // Touch device optimizations
             if ('ontouchstart' in window) {
                 document.body.classList.add('touch-device');
-                
-                // Improve touch targets
-                const touchElements = document.querySelectorAll('input, select, button, a');
-                touchElements.forEach(element => {
-                    element.style.minHeight = '44px';
-                });
             }
 
             // Viewport height fix for mobile browsers
@@ -1367,83 +1061,7 @@ if ($fasce_count == 0) {
             window.addEventListener('orientationchange', () => {
                 setTimeout(setViewportHeight, 100);
             });
-
-            // Prevent zoom on input focus for iOS
-            if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-                const viewport = document.querySelector('meta[name=viewport]');
-                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
-            }
-
-            // Allow Enter key to trigger verification
-            document.getElementById('verifyEmail').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    verifyBookings();
-                }
-            });
         });
-
-        // Verify bookings function
-        function verifyBookings() {
-            const email = document.getElementById('verifyEmail').value.trim();
-            const resultsDiv = document.getElementById('verificationResults');
-            
-            if (!email) {
-                showVerificationResults('error', 'Inserisci un indirizzo email valido.');
-                return;
-            }
-
-            // Show loading
-            showVerificationResults('', '<i class="fas fa-spinner fa-spin"></i> Ricerca in corso...');
-
-            // Make AJAX request
-            fetch('verify_booking.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'email=' + encodeURIComponent(email)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    if (data.bookings && data.bookings.length > 0) {
-                        let html = '<h4 style="color: #4ade80; margin-bottom: 1rem;">Trovate ' + data.bookings.length + ' prenotazione/i:</h4>';
-                        data.bookings.forEach(booking => {
-                            const statusClass = booking.stato ? booking.stato.toLowerCase().replace(' ', '-') : 'in-attesa';
-                            const statusText = booking.stato || 'In attesa';
-                            const operatorText = booking.operatore_nome || 'Non assegnato';
-                            
-                            html += `
-                                <div class="booking-card">
-                                    <h4>${booking.servizio}</h4>
-                                    <p><i class="fas fa-calendar"></i> ${booking.data_prenotazione}</p>
-                                    <p><i class="fas fa-clock"></i> ${booking.orario}</p>
-                                    <p><i class="fas fa-user"></i> ${booking.nome}</p>
-                                    <p><i class="fas fa-user-tie"></i> ${operatorText}</p>
-                                    <span class="status-badge ${statusClass}">${statusText}</span>
-                                </div>
-                            `;
-                        });
-                        showVerificationResults('success', html);
-                    } else {
-                        showVerificationResults('error', 'Nessuna prenotazione trovata per questo indirizzo email.');
-                    }
-                } else {
-                    showVerificationResults('error', data.message || 'Errore durante la ricerca.');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showVerificationResults('error', 'Errore di connessione. Riprova più tardi.');
-            });
-        }
-
-        function showVerificationResults(type, message) {
-            const resultsDiv = document.getElementById('verificationResults');
-            resultsDiv.style.display = 'block';
-            resultsDiv.className = 'verification-results ' + type;
-            resultsDiv.innerHTML = message;
-        }
     </script>
 </body>
 </html>
